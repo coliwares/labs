@@ -1466,7 +1466,46 @@ function obtenerResumen(tipo) {
         function copiarTexto(elementoId, botonId) {
             const el = document.getElementById(elementoId);
             const texto = el.innerText || el.textContent;
-            navigator.clipboard.writeText(texto).then(() => {
+
+            // Google Sites embebe el HTML en un iframe sin permiso "clipboard-write",
+            // por lo que navigator.clipboard falla. Se intenta primero execCommand('copy')
+            // de forma síncrona (dentro del clic) y luego la API moderna como respaldo.
+            function copiarConExecCommand() {
+                const ta = document.createElement('textarea');
+                ta.value = texto;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.top = '0';
+                ta.style.left = '0';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                ta.setSelectionRange(0, texto.length);
+                let ok = false;
+                try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+                document.body.removeChild(ta);
+                return ok;
+            }
+
+            function seleccionarTexto() {
+                // Último recurso: dejar el texto seleccionado para que el usuario use Ctrl+C / Cmd+C.
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+                return false;
+            }
+
+            const intento = copiarConExecCommand()
+                ? Promise.resolve(true)
+                : (navigator.clipboard
+                    ? navigator.clipboard.writeText(texto).then(() => true, seleccionarTexto)
+                    : Promise.resolve(seleccionarTexto()));
+
+            intento.then((ok) => {
+                if (!ok) return;
                 const btn = document.getElementById(botonId);
                 const span = btn.querySelector('span');
                 const originalText = span.textContent;
